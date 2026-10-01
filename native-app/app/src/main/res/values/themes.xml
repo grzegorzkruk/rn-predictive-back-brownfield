@@ -1,0 +1,11 @@
+<resources>
+    <!-- ReactActivity extends AppCompatActivity, so every screen needs an AppCompat theme. -->
+    <style name="Theme.PBBNative" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/pbb_background</item>
+        <item name="android:statusBarColor">@color/pbb_background</item>
+        <item name="android:navigationBarColor">@color/pbb_background</item>
+        <item name="colorAccent">#4C8DFF</item>
+    </style>
+
+    <color name="pbb_background">#0B1020</color>
+</resources>

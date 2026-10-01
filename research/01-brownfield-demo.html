@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research 1 — Predictive back in a react-native-brownfield app</title>
+<style>
+  :root { --bg:#0b1020; --surface:#132043; --border:#24365f; --text:#f2f5ff; --muted:#93a2c6; --accent:#4c8dff; --good:#48d5a0; --warn:#ffb454; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 21px; margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  .tldr { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 16px 20px; margin: 20px 0; }
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin: 14px 0; }
+  .finding.bad { border-left: 4px solid var(--bad); }
+  .finding.warn { border-left: 4px solid var(--warn); }
+  .finding.good { border-left: 4px solid var(--good); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  code { background: #0f1a38; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
+  pre { background: #0f1a38; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+  figure { margin: 0; }
+  figure img { width: 100%; border: 1px solid var(--border); border-radius: 12px; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+  .pill.good { color: var(--good); border-color: var(--good); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Research 1 — Predictive back in a react-native-brownfield app</h1>
+<p class="muted">Grzegorz Kruk, Callstack · 1 Oct 2026 · demo repo <code>rn-predictive-back-brownfield</code></p>
+
+<div class="tldr">
+  <strong>TL;DR.</strong> I built a brownfield Android app on
+  <a href="https://github.com/callstack/react-native-brownfield">react-native-brownfield</a> with the path
+  <em>native screen → React Native screen → native screen with an embedded RN fragment</em>, and tested every
+  back path on an Android 17 emulator (targetSdk 36, gesture navigation). All three screens work. Two problems
+  stand out:
+  <ol>
+    <li>The stock <code>ReactNativeFragment</code> <strong>always blocks the system predictive-back animation</strong>
+      on its host activity, and the host has no API to change that.</li>
+    <li><code>BackHandler</code> listeners are <strong>shared by every RN surface on one runtime</strong>, so a back
+      meant for the embedded fragment also reaches the RN screen hidden below it, and can pop that screen instead.</li>
+  </ol>
+</div>
+
+<h2>Setup</h2>
+<table>
+  <tr><th>Piece</th><th>What it is</th></tr>
+  <tr><td><code>android/</code></td><td>React Native project. Builds a fat AAR <code>com.pbb:brownfieldlib</code> with the brownfield Gradle plugin (JS bundle, <code>libappmodules.so</code>, autolinked libraries).</td></tr>
+  <tr><td><code>native-app/</code></td><td>The APK. A plain Android app: no React Native Gradle Plugin, no autolinking, only depends on the AAR. Application is <strong>not</strong> a <code>ReactApplication</code>.</td></tr>
+  <tr><td>React Native</td><td>Local checkout <code>../react-native</code>, branch <code>grzegorzkruk/predictive-back-swipe</code>, published as <code>react-android:1000.0.0</code>.</td></tr>
+  <tr><td>androidx</td><td><code>activity 1.8.2</code> (progress callbacks), <code>fragment 1.8.9</code>, <code>appcompat 1.7.1</code>.</td></tr>
+  <tr><td>Device</td><td>Emulator, Android 17 (API 37), gesture navigation. App targetSdk 36, so predictive back cannot be turned off.</td></tr>
+</table>
+
+<h3>The three screens</h3>
+<table>
+  <tr><th>#</th><th>Screen</th><th>Back setup</th></tr>
+  <tr><td>1</td><td><code>LauncherActivity</code> — native</td><td>No callback. A swipe is the system back-to-home animation.</td></tr>
+  <tr><td>2</td><td><code>RNActivity</code> — a real <code>ReactActivity</code></td><td>The only surface where <code>BackHandler.setInterceptEnabled</code> applies. Gets its <code>ReactHost</code> from <code>ReactNativeBrownfield.shared</code>. A small JS stack (plain state) with an ownership switch: <em>Auto</em> (consume only while a JS screen is pushed), <em>Consume</em>, <em>Release</em>.</td></tr>
+  <tr><td>3</td><td><code>NativeHostActivity</code> — native chrome + <code>ReactNativeFragment</code></td><td>The host picks one of three modes:
+    <ul>
+      <li><strong>Fragment (stock)</strong> — what react-native-brownfield does today.</li>
+      <li><strong>System</strong> — the host turns the fragment's callback off.</li>
+      <li><strong>Host + progress</strong> — the host's own <code>OnBackPressedCallback</code> owns the swipe, uses the activity 1.8 progress callbacks, and forwards the commit to the fragment.</li>
+    </ul>
+    The host implements <code>DefaultHardwareBackBtnHandler</code>, so when JS does not handle back, React Native calls the host and the host finishes itself.</td></tr>
+</table>
+
+<h2>Results</h2>
+<table>
+  <tr><th>Where</th><th>Mode</th><th>What happened</th><th></th></tr>
+  <tr><td>Screen 2</td><td>Auto, JS screen pushed</td><td>Swipe arrived as <code>hardwareBackPress</code>, JS popped to depth 1, RN released the gesture again.</td><td><span class="pill good">works</span></td></tr>
+  <tr><td>Screen 2</td><td>Auto, at root</td><td>System predictive-back animation back to the native launcher.</td><td><span class="pill good">works</span></td></tr>
+  <tr><td>Screen 3</td><td>Fragment (stock)</td><td>No system animation, no progress anywhere. The commit reached JS; JS could keep the screen (<code>true</code>) or let the host finish it (<code>false</code>).</td><td><span class="pill warn">no animation</span></td></tr>
+  <tr><td>Screen 3</td><td>System</td><td>System cross-activity animation back to screen 2. JS was never told, even with "keep this screen" on.</td><td><span class="pill good">works</span></td></tr>
+  <tr><td>Screen 3</td><td>Host + progress</td><td>Live progress (native label 0.31, JS 0.30 at the same frame). Host scaled and shifted its container, JS moved its title. Commit forwarded as <code>hardwareBackPress</code>; JS kept the screen.</td><td><span class="pill good">works</span></td></tr>
+</table>
+
+<div class="shots">
+  <figure><img src="assets/01-screen2-root.png" alt="Screen 2"><figcaption>Screen 2: ReactActivity with the ownership switch.</figcaption></figure>
+  <figure><img src="assets/01-screen2-root-exit-mid-swipe.png" alt="Screen 2 root exit"><figcaption>Screen 2, Auto at root, mid-swipe: system animation back to the native launcher.</figcaption></figure>
+  <figure><img src="assets/01-screen3-fragment-mid-swipe.png" alt="Fragment mode mid swipe"><figcaption>Screen 3, Fragment (stock), mid-swipe: nothing moves, only the system arrow.</figcaption></figure>
+  <figure><img src="assets/01-screen3-system-mid-swipe.png" alt="System mode mid swipe"><figcaption>Screen 3, System, mid-swipe: the real cross-activity animation, screen 2 behind.</figcaption></figure>
+  <figure><img src="assets/01-screen3-host-mid-swipe.png" alt="Host mode mid swipe"><figcaption>Screen 3, Host + progress, mid-swipe: host and JS animate from the same progress.</figcaption></figure>
+</div>
+
+<h2>Findings</h2>
+
+<div class="finding bad">
+  <h3>1. Stock <code>ReactNativeFragment</code> always claims back on the host</h3>
+  <p><code>ReactNativeBrownfield.createView</code> registers this on the host activity's dispatcher for every fragment:</p>
+<pre>val backPressedCallback = object : OnBackPressedCallback(true) {
+    override fun handleOnBackPressed() { resolvedDelegate.onBackPressed() }
+}
+activity?.onBackPressedDispatcher?.addCallback(lifecycleOwner, backPressedCallback)</pre>
+  <p>It is always enabled and private. An enabled callback suppresses the system animation and keeps FragmentManager from seeing the swipe. So <strong>any native screen that embeds RN loses predictive back</strong>, even if the RN content has nothing to pop. The demo's System mode only works because the host finds this callback on the dispatcher with reflection — a workaround, not a fix.</p>
+  <p><strong>Fix belongs in react-native-brownfield:</strong> expose the callback (or an <code>isBackEnabled</code> switch) to the host, or start it disabled and let JS turn it on while it has something to pop.</p>
+</div>
+
+<div class="finding bad">
+  <h3>2. <code>BackHandler</code> is global across RN surfaces</h3>
+  <p>Screens 2 and 3 run on one React Native runtime. <code>BackHandler</code> keeps one listener list for the whole runtime and calls listeners newest-first until one returns <code>true</code>. React Native does not say which surface the back press was for.</p>
+  <p>Reproduced: screen 2 at JS depth 3, open screen 3, swipe. The fragment's JS returned <code>false</code> ("released, host finishes"), then screen 2's listener — still mounted under screen 3 — returned <code>true</code> and popped its hidden stack to depth 2. Screen 3 stayed open. Coming back showed screen 2 at depth 2.</p>
+  <p>Any brownfield app with more than one RN surface alive can hit this. Each listener has to know if its own surface is in front. RN has no API for that today.</p>
+</div>
+
+<div class="finding warn">
+  <h3>3. <code>setInterceptEnabled</code> does nothing in a fragment</h3>
+  <p>It acts on <code>reactContext.currentActivity</code>, and only if that is a <code>ReactActivity</code>. A <code>ReactNativeFragment</code>'s host is not, so the host has to own the decision. That's fine, but it has to be documented: in brownfield, back for embedded RN is a <strong>host</strong> responsibility.</p>
+</div>
+
+<div class="finding good">
+  <h3>4. A host-owned callback with activity 1.8 progress works well</h3>
+  <p>The host overrides <code>handleOnBackStarted / Progressed / Cancelled / Pressed</code>, animates its own container, sends progress to JS as device events, and forwards the commit through <code>ReactFragment.onBackPressed()</code>. JS keeps the final say through <code>hardwareBackPress</code>. Implementing <code>DefaultHardwareBackBtnHandler</code> on the host avoids brownfield's "disable, re-dispatch" fallback, which would loop back into an enabled host callback.</p>
+</div>
+
+<h2>Build problems found along the way</h2>
+<ul>
+  <li><strong>"Wrong bytecode version. Expected 99 but got 98"</strong> at startup. The React Native Gradle Plugin prefers a <code>hermesc</code> built from source if one exists, and the RN checkout had an old one in <code>ReactAndroid/hermes-engine/build</code>. Fixed by pinning <code>react.hermesCommand</code> to the npm <code>hermes-compiler</code> and linking that from the RN checkout.</li>
+  <li>The brownfield plugin's asset merge kept a <strong>stale JS bundle</strong> from the Gradle cache. Clear <code>android/brownfieldlib/build</code> before <code>yarn aar</code>.</li>
+  <li>A dependency's manifest asks for nearby-devices permission when RN starts; the demo just dismisses it.</li>
+</ul>
+
+<h2>How to run</h2>
+<pre>yarn install                 # links ../react-native and ../react-native-brownfield
+yarn rn:publish              # once, or after RN native changes
+yarn brownfield-plugin:publish
+rm -rf android/brownfieldlib/build && yarn aar
+yarn native:install</pre>
+
+</main>
+</body>
+</html>

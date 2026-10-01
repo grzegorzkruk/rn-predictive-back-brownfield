@@ -1,78 +1,78 @@
 /**
  * Screen 3 of the path: content inside a ReactNativeFragment, hosted by a native activity.
  *
- * The fragment is not a ReactActivity, so nothing React Native does with back applies here:
+ * The fragment is not a ReactActivity, so BackHandler.setInterceptEnabled is a no-op here.
+ * NativeHostActivity decides who owns back, and this tree only reports it:
  *
- *   - BackHandler.setInterceptEnabled reaches for a ReactActivity and finds none, so it is a
- *     no-op. The host's dispatcher is untouched by this tree.
- *   - The brownfield ReactNativeFragment installs its own OnBackPressedCallback on the host,
- *     enabled, which turns a commit into ReactDelegate.onBackPressed() -> JS
- *     hardwareBackPress. While that callback is enabled it claims the gesture: no system
- *     animation, no FragmentManager.
+ *   fragment - stock react-native-brownfield. Its always-enabled callback claims the swipe,
+ *              so no system animation, no progress, and the commit arrives here.
+ *   system   - the host disabled that callback. The system animates the activity away and
+ *              this tree never hears about it.
+ *   host     - the host's own callback owns the swipe, sends progress here, and forwards
+ *              the commit as hardwareBackPress.
  *
- * So the choice in this activity is the host's, not React Native's, and the switch below
- * just reports what the host is doing. hardwareBackPress still arrives, which is what lets
- * this tree keep or release the screen.
+ * Whenever a commit arrives, returning true keeps the screen and false lets the host finish.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, BackHandler, Easing } from 'react-native';
+import { Animated, BackHandler } from 'react-native';
 
-import {
-  Button,
-  Card,
-  Copy,
-  COLORS,
-  Fact,
-  Log,
-  Screen,
-  SwitchRow,
-  Title,
-  useLog,
-} from './ui';
+import { Button, Card, Copy, Fact, Log, Screen, SwitchRow, Title, useLog } from './ui';
+import { useRnProgress } from './rnProgress';
 import {
   addHostBackProgressListener,
   addHostModeListener,
   hostConstants,
-  setHostBackMode,
+  type HostBackMode,
 } from './native';
+
+const MODE_COPY: Record<HostBackMode, string> = {
+  fragment:
+    'The brownfield fragment callback is enabled. It claims the swipe: no system animation, no progress, and the commit comes here as hardwareBackPress.',
+  system:
+    'No callback is enabled. The system animates this activity away, and this tree is never told.',
+  host: 'The host callback owns the swipe. It animates the native container, sends progress here, and forwards the commit as hardwareBackPress.',
+};
 
 export default function EmbedApp() {
   const [keepOnCommit, setKeepOnCommit] = useState(false);
-  const [hostConsumes, setHostConsumes] = useState(true);
-  const { lines, log } = useLog();
+  const [mode, setMode] = useState<HostBackMode>('fragment');
+  const [progressLabel, setProgressLabel] = useState('idle');
+  const { lines, log } = useLog('screen3');
+  const [progressView, rnProgressLabel, rnProgressEvents] = useRnProgress();
 
-  // Keep the listener in a ref so the subscription is registered once but still reads the
-  // current switch value. A stale closure here is the classic way these demos log the wrong
-  // decision.
+  // Read through a ref so the listener is registered once but still sees the current value.
   const keepRef = useRef(keepOnCommit);
   keepRef.current = keepOnCommit;
 
-  // Driven by the host's progress events. Only moves while the host callback owns the swipe,
-  // which is exactly when the system will not animate anything for us.
-  const slideX = useRef(new Animated.Value(0)).current;
-  const [progressLabel, setProgressLabel] = useState('idle');
+  const progress = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const off = addHostBackProgressListener(({phase, progress}) => {
-      setProgressLabel(`${phase} ${progress.toFixed(2)}`);
-      Animated.timing(slideX, {
-        toValue: progress * 72,
-        duration: phase === 'progress' ? 16 : 180,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-    });
-    return off;
-  }, [slideX]);
+  useEffect(
+    () =>
+      addHostBackProgressListener(({ phase, progress: value }) => {
+        setProgressLabel(`${phase} ${value.toFixed(2)}`);
+        if (phase === 'cancelled' || phase === 'committed') {
+          Animated.timing(progress, {
+            toValue: 0,
+            duration: 180,
+            useNativeDriver: true,
+          }).start();
+          log(`host: ${phase}`);
+        } else {
+          progress.setValue(value);
+        }
+      }),
+    [log, progress],
+  );
 
-  useEffect(() => {
-    const off = addHostModeListener((mode) => {
-      setHostConsumes(mode === 'consume');
-      log(`host back mode -> ${mode}`, mode === 'system' ? 'good' : 'warn');
-    });
-    return off;
-  }, [log]);
+  useEffect(
+    () =>
+      addHostModeListener((next) => {
+        setMode(next);
+        log(`host mode -> ${next}`);
+      }),
+    [log],
+  );
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -92,10 +92,17 @@ export default function EmbedApp() {
     <Screen>
       <Animated.View
         style={{
-          transform: [{translateX: slideX}],
-          opacity: slideX.interpolate({
-            inputRange: [0, 72],
-            outputRange: [1, 0.55],
+          transform: [
+            {
+              translateX: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 40],
+              }),
+            },
+          ],
+          opacity: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0.5],
           }),
         }}>
         <Title>Embedded RN fragment</Title>
@@ -103,29 +110,35 @@ export default function EmbedApp() {
 
       <Copy>
         A ReactNativeFragment inside a plain AppCompatActivity. It shares the host's
-        dispatcher instead of owning one, so React Native's back switches do not apply here.
+        dispatcher, so React Native's back switches do not apply here.
       </Copy>
 
-      <Card title="Host owns the gesture" tone="embed">
-        <SwitchRow
-          label="Host callback consumes back"
-          hint={
-            hostConsumes
-              ? 'Host callback is enabled: progress comes here, and the system animation is suppressed.'
-              : 'No host callback: the system pops this activity and this tree never hears the swipe.'
-          }
-          value={hostConsumes}
-          onValueChange={(next) => {
-            setHostConsumes(next);
-            setHostBackMode(next ? 'consume' : 'system');
+      <Card title={`Host mode: ${mode}`} tone="embed">
+        <Copy>{MODE_COPY[mode]}</Copy>
+        <Fact label="progress seen by JS" value={progressLabel} />
+      </Card>
+
+      <Card title="React Native core APIs here" tone="embed">
+        <Copy>
+          Both act on currentActivity, which is this AppCompatActivity, not a ReactActivity.
+        </Copy>
+        {progressView}
+        <Fact
+          label="PredictiveBackAnimatedView"
+          value={`${rnProgressLabel} (${rnProgressEvents} events)`}
+        />
+        <Button
+          label="Call setInterceptEnabled(true)"
+          onPress={() => {
+            BackHandler.setInterceptEnabled(true);
+            log('called setInterceptEnabled(true)');
           }}
         />
-        <Fact label="gesture" value={progressLabel} />
       </Card>
 
       <Card title="What JS does with a commit" tone="embed">
         <SwitchRow
-          label="Keep this screen when the host forwards a commit"
+          label="Keep this screen on commit"
           hint="hardwareBackPress returns true to stay, false so the host finishes the activity."
           value={keepOnCommit}
           onValueChange={setKeepOnCommit}
@@ -141,7 +154,6 @@ export default function EmbedApp() {
           label="androidx.activity progress callbacks"
           value={hostConstants.activityHasProgressCallbacks ? 'present (1.8+)' : 'missing'}
         />
-        <Fact label="host activity type" value="AppCompatActivity" />
       </Card>
 
       <Card title="Log" tone="embed">
@@ -150,5 +162,3 @@ export default function EmbedApp() {
     </Screen>
   );
 }
-
-export const EMBED_BACKGROUND = COLORS.background;

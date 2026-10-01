@@ -1,19 +1,18 @@
 /**
- * Screen 2 of the path: the React Native screen, mounted by RNActivity.
+ * Screen 2 of the path: the React Native screen, mounted by RNActivity (a ReactActivity).
  *
- * RNActivity is a ReactActivity, so this surface gets React Native's own back behaviour:
+ * ReactActivity is the one surface where BackHandler.setInterceptEnabled applies:
  *
- *   - On targetSdk 36, ReactActivity registers a commit-only callback plus a system
- *     navigation observer. JS `hardwareBackPress` no longer comes from
- *     Activity.onBackPressed().
- *   - While RN consumes the gesture, the system animation does not play: an enabled
- *     callback at PRIORITY_DEFAULT claims the swipe.
- *   - `setInterceptEnabled(false)` hands the swipe back to the system. JS is still told
- *     about the commit, through the observer, but a `true` return can no longer cancel it.
+ *   true  - React Native consumes the swipe. The system animation does not play; JS gets
+ *           hardwareBackPress on commit and can pop its own stack.
+ *   false - React Native lets go. The system animates the activity exit back to the native
+ *           launcher, and returning true from hardwareBackPress can no longer cancel it.
  *
- * The stack is plain state plus BackHandler, deliberately not a navigation library. This app
- * asks who owns the gesture; a JS stack answers that with React Native core semantics only.
- * A library stack would move the same question into FragmentManager instead.
+ * "Auto" is the pattern a brownfield screen wants: consume only while there is a JS screen to
+ * pop, release at the root so leaving React Native gets the system animation.
+ *
+ * The stack is plain state plus BackHandler, deliberately not a navigation library, so the
+ * behaviour under test is React Native core's own.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -27,43 +26,57 @@ import {
   Fact,
   Log,
   Screen,
-  SwitchRow,
+  Segmented,
   Title,
   useLog,
 } from './ui';
-import {
-  addHostModeListener,
-  hasBackProbe,
-  hostConstants,
-  openNativeHost,
-} from './native';
+import { hostConstants, openNativeHost } from './native';
+import { useRnProgress } from './rnProgress';
 
 const DEPTH_LIMIT = 3;
 
-export default function RnScreenApp() {
+/** 'unset' means JS never calls setInterceptEnabled, so ReactActivity keeps its own default. */
+type Ownership = 'unset' | 'auto' | 'consume' | 'release';
+
+const OWNERSHIP_OPTIONS: ReadonlyArray<{ value: Ownership; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'consume', label: 'Consume' },
+  { value: 'release', label: 'Release' },
+];
+
+const OWNERSHIP_COPY: Record<Ownership, string> = {
+  unset:
+    'JS has not called setInterceptEnabled. ReactActivity is in whatever state it starts in. Picking any option ends this.',
+  auto: 'RN consumes back only while a JS screen is pushed. At the root it lets go, so leaving gets the system animation.',
+  consume:
+    'RN always consumes back. JS pops its stack; at the root it returns false and the activity finishes without the system animation.',
+  release:
+    'RN never consumes back. The system animates the whole activity away, even with JS screens pushed.',
+};
+
+export default function RnScreenApp({
+  initialOwnership = 'auto',
+}: {
+  initialOwnership?: Ownership;
+}) {
   const [depth, setDepth] = useState(1);
-  const [jsConsumes, setJsConsumes] = useState(true);
-  const { lines, log } = useLog();
+  const [ownership, setOwnership] = useState<Ownership>(initialOwnership);
+  const { lines, log } = useLog('screen2');
+  const [progressView, progressLabel, progressEvents] = useRnProgress();
 
-  // RN's consuming state, mirrored natively. An enabled RN callback suppresses the system
-  // animation; a released one lets the system animate and delivers only the commit.
+  const consumes = ownership === 'consume' || (ownership === 'auto' && depth > 1);
+
   useEffect(() => {
-    BackHandler.setInterceptEnabled(jsConsumes);
+    if (ownership === 'unset') {
+      log('ownership unset: setInterceptEnabled never called');
+      return;
+    }
+    BackHandler.setInterceptEnabled(consumes);
     log(
-      jsConsumes
-        ? 'RN consumes the gesture (setInterceptEnabled true)'
-        : 'RN released the gesture (setInterceptEnabled false)',
-      jsConsumes ? 'warn' : 'good',
+      consumes ? 'setInterceptEnabled(true): RN consumes' : 'setInterceptEnabled(false): system owns',
+      consumes ? 'warn' : 'good',
     );
-  }, [jsConsumes, log]);
-
-  // Restore the default when this activity goes away, so the next surface starts known.
-  useEffect(
-    () => () => {
-      BackHandler.setInterceptEnabled(true);
-    },
-    [],
-  );
+  }, [consumes, ownership, log]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -72,29 +85,15 @@ export default function RnScreenApp() {
         log(`hardwareBackPress -> popped to depth ${depth - 1}`, 'good');
         return true;
       }
-      // Nothing left to pop in JS. Return false so the activity finishes and the native
-      // launcher becomes visible again.
-      log('hardwareBackPress at RN root -> unhandled, activity finishes');
+      log('hardwareBackPress at root -> not handled');
       return false;
     });
     return () => subscription.remove();
   }, [depth, log]);
 
-  useEffect(() => {
-    log(
-      `targetSdk ${hostConstants.targetSdk}, device SDK ${hostConstants.deviceSdk}`,
-    );
-    if (hostConstants.targetSdk >= 36) {
-      log('targetSdk 36+: predictive back cannot be opted out', 'warn');
-    }
-    if (hasBackProbe) {
-      addHostModeListener((mode) => log(`host back mode -> ${mode}`));
-    }
-  }, [log]);
-
   const push = useCallback(() => {
     setDepth((current) => Math.min(current + 1, DEPTH_LIMIT));
-    log('pushed an RN screen');
+    log('pushed a JS screen');
   }, [log]);
 
   const pop = useCallback(() => {
@@ -104,29 +103,57 @@ export default function RnScreenApp() {
     }
   }, [depth, log]);
 
-  const backToNative = useCallback(() => {
-    log('popToNative -> back to the launcher activity');
-    ReactNativeBrownfield.popToNative(false);
-  }, [log]);
-
   return (
     <Screen>
       <Title>{depth === 1 ? 'RN screen (root)' : `RN screen, depth ${depth}`}</Title>
       <Copy>
-        This activity is a ReactActivity. Swipe from the left edge or press back: what
-        animates depends on the switch below.
+        Screen 2 of 3. A ReactActivity. Swipe from the left edge or press back: what animates
+        depends on who owns back.
       </Copy>
 
-      <Card title="Who consumes the gesture">
-        <SwitchRow
-          label="RN consumes back"
-          hint={
-            jsConsumes
-              ? 'ReactActivity holds the gesture, so JS can pop this stack. No system animation.'
-              : 'ReactActivity released it: the system animates the exit and JS is told afterwards.'
-          }
-          value={jsConsumes}
-          onValueChange={setJsConsumes}
+      <Card title="Who owns back">
+        <Segmented options={OWNERSHIP_OPTIONS} value={ownership} onChange={setOwnership} />
+        <Copy>{OWNERSHIP_COPY[ownership]}</Copy>
+        <Fact
+          label="RN consumes now (JS view)"
+          value={ownership === 'unset' ? 'unknown' : consumes ? 'yes' : 'no'}
+        />
+        {progressView}
+        <Fact
+          label="PredictiveBackAnimatedView"
+          value={`${progressLabel} (${progressEvents} events)`}
+        />
+      </Card>
+
+      <Card title="JS stack">
+        <Fact label="depth" value={String(depth)} />
+        <Button label="Push JS screen" onPress={push} />
+        <Button label="Pop from JS" onPress={pop} />
+      </Card>
+
+      <Card title="Screen 3">
+        <Copy>A native activity with a ReactNativeFragment inside. The host owns back there.</Copy>
+        <Button
+          label="Open native host with RN fragment"
+          onPress={() => {
+            log('starting NativeHostActivity');
+            openNativeHost();
+          }}
+          tone="primary"
+        />
+      </Card>
+
+      <Card title="popToNative">
+        <Copy>
+          The brownfield module calls Activity.onBackPressed() on the current activity, which
+          goes through the same callbacks as a back press.
+        </Copy>
+        <Button
+          label="popToNative"
+          onPress={() => {
+            log('popToNative');
+            ReactNativeBrownfield.popToNative(false);
+          }}
         />
       </Card>
 
@@ -139,36 +166,6 @@ export default function RnScreenApp() {
           label="androidx.activity progress callbacks"
           value={hostConstants.activityHasProgressCallbacks ? 'present (1.8+)' : 'missing'}
         />
-        <Fact label="RN activity type" value="ReactActivity" />
-      </Card>
-
-      <Card title="In-app stack">
-        <Button label="Push RN screen" onPress={push} />
-        <Button label="Pop from JS" onPress={pop} />
-      </Card>
-
-      <Card title="Screen 3">
-        <Copy>
-          A native activity that embeds a ReactNativeFragment. The host owns the gesture
-          there; this activity only comes back through the system back stack.
-        </Copy>
-        <Button
-          label="Open native host with RN fragment"
-          onPress={() => {
-            log('starting NativeHostActivity (screen 3)');
-            openNativeHost();
-          }}
-          tone="primary"
-        />
-      </Card>
-
-      <Card title="popToNative">
-        <Copy>
-          The brownfield module implements this as a plain Activity.onBackPressed() on the
-          current activity. With RN consuming and a stack to pop, that pops JS; at the root
-          it finishes the activity and the launcher is visible again.
-        </Copy>
-        <Button label="popToNative" onPress={backToNative} />
       </Card>
 
       <Card title="Log">

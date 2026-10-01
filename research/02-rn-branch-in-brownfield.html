@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research 2 — The predictive-back RN branch in a brownfield app</title>
+<style>
+  :root { --bg:#0b1020; --surface:#132043; --border:#24365f; --text:#f2f5ff; --muted:#93a2c6; --accent:#4c8dff; --good:#48d5a0; --warn:#ffb454; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 21px; margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  .tldr { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 16px 20px; margin: 20px 0; }
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin: 14px 0; }
+  .finding.bad { border-left: 4px solid var(--bad); }
+  .finding.warn { border-left: 4px solid var(--warn); }
+  .finding.good { border-left: 4px solid var(--good); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  code { background: #0f1a38; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
+  pre { background: #0f1a38; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 16px 0; }
+  figure { margin: 0; }
+  figure img { width: 100%; border: 1px solid var(--border); border-radius: 12px; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+  .pill.good { color: var(--good); border-color: var(--good); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Research 2 — The predictive-back RN branch in a brownfield app</h1>
+<p class="muted">Grzegorz Kruk, Callstack · 1 Oct 2026 · demo repo <code>rn-predictive-back-brownfield</code> · RN branch
+<code>grzegorzkruk/predictive-back-swipe</code> @ <code>03c7a9a0b59</code> · follows <a href="01-brownfield-demo.html">Research 1</a></p>
+
+<div class="tldr">
+  <strong>TL;DR.</strong> I ran the React Native branch that adds official predictive-back support inside the
+  brownfield demo from Research 1 and tested what each new API does there. Results:
+  <ol>
+    <li><strong>The branch blocks the system animation by default.</strong> On targetSdk 36, <code>ReactActivity</code>
+      adds an <em>enabled</em> back callback in <code>onCreate</code>. An app that never touches the new API gets no
+      predictive-back animation when it leaves an RN screen. That breaks our main goal: it has to work out of the box.</li>
+    <li><strong><code>BackHandler.setInterceptEnabled</code> works in a <code>ReactActivity</code>, but it goes to the wrong
+      activity in brownfield.</strong> It acts on <code>currentActivity</code>. A hidden RN screen that calls it changes nothing,
+      and its own activity keeps the old value. In my run, the RN screen said "released" but still blocked the system animation.</li>
+    <li><strong>Inside a <code>ReactNativeFragment</code>, none of the new APIs do anything.</strong> <code>setInterceptEnabled</code>
+      is ignored and <code>PredictiveBackAnimatedView</code> gets 0 events, because the host is not a <code>ReactActivity</code>.</li>
+    <li><strong>The commit notification fires when the system closes the whole activity</strong> and runs JS back listeners
+      on a screen that is already going away. Returning <code>true</code> there does nothing.</li>
+  </ol>
+  The parts that are worth shipping are small: the opt-in switch (fixed to start off and to target the right activity),
+  the callback getter for libraries, and the <code>isFinishing</code> fix. The animation and progress pieces should stay in
+  community packages. See <a href="#rfc">the RFC proposal</a>.
+</div>
+
+<h2>Setup</h2>
+<p>Same app as Research 1 (<em>native screen → RN screen → native screen with an RN fragment</em>), same emulator
+(Android 17, API 37, gesture navigation, targetSdk 36), built against the local RN checkout published as
+<code>react-android:1000.0.0</code>. Two additions for this research:</p>
+<ul>
+  <li>The launcher has a second button, <strong>"Open React Native screen (back not set up)"</strong>. It opens screen 2 with
+    ownership <em>unset</em>, so JS never calls <code>setInterceptEnabled</code>. This is "an app that ignores the new API".</li>
+  <li>Screens 2 and 3 each render a <code>PredictiveBackAnimatedView</code> and show the events it receives. Screen 3 also has
+    a button that calls <code>BackHandler.setInterceptEnabled(true)</code>.</li>
+</ul>
+
+<h3>What the branch adds (34 files, 8 commits)</h3>
+<table>
+  <tr><th>Piece</th><th>What it does</th></tr>
+  <tr><td>Consume callback in <code>ReactActivity</code></td><td><code>OnBackPressedCallback(true)</code> added in <code>onCreate</code> on targetSdk 36+. On commit it runs the old <code>onBackPressed</code> path, so <code>hardwareBackPress</code> reaches JS.</td></tr>
+  <tr><td><code>BackHandler.setInterceptEnabled(bool)</code></td><td>JS → <code>DeviceEventManagerModule.setInterceptEnabled</code> → <code>ReactActivity.setInterceptEnabled</code> on <code>currentActivity</code>. Turns the callback on or off.</td></tr>
+  <tr><td><code>SystemNavigationBackObserver</code></td><td>Platform callback at <code>PRIORITY_SYSTEM_NAVIGATION_OBSERVER</code> (API 36). When RN has let go, it tells JS after the system back commits.</td></tr>
+  <tr><td><code>InAppPredictiveBack</code></td><td>Platform <code>OnBackAnimationCallback</code> (API 34). Sends start/progress/cancel/commit to listeners, with its own commit rule (25% of width or 900 dp/s).</td></tr>
+  <tr><td><code>PredictiveBackAnimatedView</code></td><td>New native component (Java view manager + JS + types). Registers on <code>currentActivity as? ReactActivity</code> when attached and emits <code>onProgress</code>.</td></tr>
+  <tr><td><code>add/removePredictiveBackHandler</code>, <code>…ProgressListener</code>, <code>PredictiveBackEvent</code></td><td>Public Java API for native libraries to get progress.</td></tr>
+  <tr><td><code>getBackPressedCallback()</code></td><td>Lets a library turn RN's callback off.</td></tr>
+  <tr><td><code>invokeDefaultOnBackPressed</code> guard</td><td>Returns early when the activity is already finishing (avoids a double finish).</td></tr>
+  <tr><td>Other</td><td>Test, <code>ReactAndroid.api</code> and <code>ReactNativeApi.d.ts</code> snapshots, RNTester example and playground, <code>gradle.properties</code> <code>reactNativeArchitectures=arm64-v8a</code> (local only).</td></tr>
+</table>
+
+<h2>Experiments</h2>
+<table>
+  <tr><th>#</th><th>Where</th><th>What I did</th><th>What happened</th><th></th></tr>
+  <tr><td>E1</td><td>Screen 2, ownership <em>unset</em>, JS root</td><td>Slow swipe from the left edge</td>
+    <td>No system animation. Logcat: <code>hardwareBackPress at root -&gt; not handled</code>, then the activity finished without an animation. <code>PredictiveBackAnimatedView</code>: 0 events.</td><td><span class="pill bad">blocks by default</span></td></tr>
+  <tr><td>E2</td><td>Screen 2, <em>Consume</em>, JS depth 2</td><td>Slow swipe</td>
+    <td><code>in-app: back started</code> / <code>committed</code>. Progress 0.15 → 0.34 → 0.51 → commit 1.00 (180 events), then JS popped to depth 1.</td><td><span class="pill good">works</span></td></tr>
+  <tr><td>E3</td><td>Screen 2, <em>Release</em>, JS depth 2</td><td>Slow swipe</td>
+    <td>The system animated the whole RN activity away to the launcher. Then the observer said <code>system back committed, notifying JS</code>, and JS popped to depth 1 on an activity that was already finishing.</td><td><span class="pill warn">notify too late</span></td></tr>
+  <tr><td>E4a</td><td>Screen 2 <em>Auto</em> at depth 2 (consuming) → open screen 3, mode <em>Fragment</em></td><td>Swipe on screen 3</td>
+    <td>Screen 3 JS released, and the shared listener on hidden screen 2 popped to depth 1. Then screen 2 called <code>setInterceptEnabled(false)</code> while <code>currentActivity</code> was screen 3, so the call was dropped.</td><td><span class="pill bad">wrong activity</span></td></tr>
+  <tr><td>E4b</td><td>Screen 3, mode <em>Host + progress</em></td><td>Slow swipe</td>
+    <td>Host progress 0.36 → commit, forwarded to JS. The embedded <code>PredictiveBackAnimatedView</code> stayed at 0 events.</td><td><span class="pill bad">dead in fragment</span></td></tr>
+  <tr><td>E4c</td><td>Screen 3</td><td>Pressed "Call setInterceptEnabled(true)", then <em>System</em> mode and swipe</td>
+    <td>The call was ignored. The system cross-activity animation still played (screenshot below).</td><td><span class="pill bad">no-op in fragment</span></td></tr>
+  <tr><td>E4d</td><td>Back on screen 2, JS root, JS shows "RN consumes: no"</td><td>Slow swipe</td>
+    <td><code>in-app: back started</code>, progress 0.33–0.40 (114 events), no system animation, then <code>hardwareBackPress at root -&gt; not handled</code>. RN was still consuming because of the call dropped in E4a.</td><td><span class="pill bad">stale state</span></td></tr>
+</table>
+
+<div class="shots">
+  <figure><img src="assets/02-e1-default-root-swipe.png"><figcaption>E1 — app that ignores the new API. Mid-swipe at the root: no system animation, only the edge arrow.</figcaption></figure>
+  <figure><img src="assets/02-e2-consume-progress.png"><figcaption>E2 — Consume. RN owns the swipe; <code>PredictiveBackAnimatedView</code> at 0.53.</figcaption></figure>
+  <figure><img src="assets/02-e3-release-depth2.png"><figcaption>E3 — Release at depth 2. The system slides the whole activity away, even though JS has a pushed screen.</figcaption></figure>
+  <figure><img src="assets/02-e4-fragment-noop.png"><figcaption>E4c — screen 3 after <code>setInterceptEnabled(true)</code>: the system animation still plays; the RN view shows 0 events.</figcaption></figure>
+  <figure><img src="assets/02-e4-stale-consume.png"><figcaption>E4d — screen 2 says "RN consumes: no", but RN is consuming (progress 0.33) and the system animation is gone.</figcaption></figure>
+</div>
+
+<h2>Findings</h2>
+
+<div class="finding bad">
+  <h3>1. RN takes back by default on targetSdk 36</h3>
+  <p><code>ReactActivity</code> creates <code>mBackPressedCallback</code> as <code>new OnBackPressedCallback(true)</code> and adds
+  it in <code>onCreate</code>. Any enabled callback turns off the system animation, so every RN screen loses predictive
+  back until JS calls <code>setInterceptEnabled(false)</code>. Apps that never heard of the API (E1) get the worst result:
+  no animation and no in-app progress either.</p>
+  <p><strong>Fix:</strong> start the callback disabled. JS (or a library) turns it on when it really has something to pop.
+  This changes behaviour for apps that block back with <code>BackHandler</code> returning <code>true</code>: on targetSdk 36
+  they need to opt in. That is the main trade-off for the RFC to state openly.</p>
+</div>
+
+<div class="finding bad">
+  <h3>2. <code>setInterceptEnabled</code> uses <code>currentActivity</code>, not the caller's activity</h3>
+  <p><code>DeviceEventManagerModule.setInterceptEnabled</code> looks up <code>reactApplicationContext.currentActivity</code> and acts only if it
+  is a <code>ReactActivity</code>. In brownfield, the screen in front is often a native activity (screen 3), so:</p>
+  <ul>
+    <li>a call from a hidden RN screen is dropped, and that screen's activity keeps the old value (E4a → E4d);</li>
+    <li>a call from an RN fragment does nothing (E4c).</li>
+  </ul>
+  <p>The same pattern is in <code>ReactPredictiveBackAnimatedView</code>, which picks its activity when it attaches.</p>
+  <p><strong>Fix options:</strong> keep the value per surface or per <code>ReactHost</code> and apply it when a
+  <code>ReactActivity</code> resumes; or pass the root tag so native can find the right activity. At least, document that
+  the call applies to the RN activity in front and should be made again when a screen gets focus.</p>
+</div>
+
+<div class="finding bad">
+  <h3>3. Nothing in the branch reaches a <code>ReactNativeFragment</code></h3>
+  <p>All new APIs live on <code>ReactActivity</code>. A fragment inside an <code>AppCompatActivity</code> gets none of them
+  (E4b, E4c). The brownfield library's own always-on callback (Research 1, finding 1) still blocks the system animation.
+  The working pattern is the same as in Research 1: the <strong>host owns back</strong> and forwards the commit to the fragment.</p>
+  <p><strong>Ask for core:</strong> a small host-facing way to forward a commit to a <code>ReactDelegate</code> / fragment
+  and to know whether JS wants back. <strong>Ask for react-native-brownfield:</strong> expose or disable its fragment callback.</p>
+</div>
+
+<div class="finding warn">
+  <h3>4. The commit observer runs JS back listeners after the activity is gone</h3>
+  <p>When RN has let go, <code>SystemNavigationBackObserver</code> calls <code>hardwareBackPress</code> after the system back commits.
+  With a JS stack (E3), that pops a JS screen on an activity that is already closing. The event looks like a normal back press, but
+  JS cannot cancel it. In brownfield it also fires for activity-to-activity transitions.</p>
+  <p><strong>Fix:</strong> if we keep it, send a separate observe-only event (for example <code>backCommitted</code>),
+  not <code>hardwareBackPress</code>. Otherwise leave it out of the first RFC.</p>
+</div>
+
+<div class="finding warn">
+  <h3>5. <code>BackHandler</code> is still shared by all surfaces</h3>
+  <p>The branch does not change Research 1, finding 2: in E4a a back meant for screen 3 also popped hidden screen 2.
+  This is not new, but the RFC should say it is out of scope, or add surface info to the event.</p>
+</div>
+
+<div class="finding good">
+  <h3>6. What works</h3>
+  <ul>
+    <li>Opt-in consume in a <code>ReactActivity</code> (E2): JS gets the commit, and in-app progress works.</li>
+    <li>Release (E3): the system animation plays for the whole activity.</li>
+    <li>The <code>isFinishing</code> guard: no double finish after the commit in E1/E4d.</li>
+  </ul>
+</div>
+
+<h2 id="rfc">Proposal: what from the branch goes into the RFC</h2>
+<table>
+  <tr><th>Branch piece</th><th>Decision</th><th>Why</th></tr>
+  <tr><td><code>BackHandler.setInterceptEnabled</code> + <code>NativeDeviceEventManager.setInterceptEnabled</code></td><td><span class="pill good">keep, change</span></td><td>The one JS switch we need. It is a preference, not a guarantee. Make it target the caller's activity, or document the "front RN activity" rule (finding 2).</td></tr>
+  <tr><td>Consume callback in <code>ReactActivity</code> (targetSdk 36+)</td><td><span class="pill good">keep, change</span></td><td>Needed so <code>hardwareBackPress</code> still reaches JS when the app opts in. It must <strong>start disabled</strong> (finding 1).</td></tr>
+  <tr><td><code>getBackPressedCallback()</code></td><td><span class="pill good">keep</span></td><td>An escape hatch for react-native-screens and brownfield hosts.</td></tr>
+  <tr><td><code>invokeDefaultOnBackPressed</code> <code>isFinishing</code> guard</td><td><span class="pill good">keep</span></td><td>A plain bug fix.</td></tr>
+  <tr><td><code>ReactActivityBackPressedCallbackTest</code>, API snapshots</td><td><span class="pill good">keep, trim</span></td><td>Cover only the kept behaviour; regenerate <code>ReactAndroid.api</code> and <code>ReactNativeApi.d.ts</code>.</td></tr>
+  <tr><td><code>SystemNavigationBackObserver</code></td><td><span class="pill warn">defer / change</span></td><td>Useful, but it must not reuse <code>hardwareBackPress</code> (finding 4). A separate observe-only event, or a follow-up RFC.</td></tr>
+  <tr><td><code>InAppPredictiveBack</code> + commit rule</td><td><span class="pill bad">community</span></td><td>Animation belongs in libraries. Its own commit rule can differ from the system's. If core ever sends progress, it should use the androidx 1.8 callbacks on the same <code>OnBackPressedCallback</code>.</td></tr>
+  <tr><td><code>PredictiveBackAnimatedView</code> (view, manager, JS, types, <code>MainReactPackage</code>)</td><td><span class="pill bad">community</span></td><td>Works only in a <code>ReactActivity</code>, picks its activity once at attach, and does nothing in fragments (finding 3).</td></tr>
+  <tr><td><code>PredictiveBackHandler</code>, <code>PredictiveBackProgressListener</code>, <code>PredictiveBackEvent</code></td><td><span class="pill bad">community</span></td><td>react-native-screens gets progress from <code>FragmentManager</code>; other libraries can add their own callback.</td></tr>
+  <tr><td><code>gradle.properties</code> arm64 only</td><td><span class="pill bad">drop</span></td><td>Local build shortcut.</td></tr>
+  <tr><td>RNTester playground and progress examples</td><td><span class="pill bad">drop</span></td><td>Keep one small <code>setInterceptEnabled</code> example.</td></tr>
+</table>
+
+<h3>Open questions for the RFC</h3>
+<ul>
+  <li>Default off breaks apps that block back with <code>BackHandler</code> on targetSdk 36. Do we accept that, or turn it on automatically while
+    there are <code>hardwareBackPress</code> listeners? React Navigation always has listeners, so that would block the system animation again.</li>
+  <li>Should <code>setInterceptEnabled</code> take a root tag, so it works for many surfaces and for fragments?</li>
+  <li>Do we want a host-facing API on <code>ReactDelegate</code> for brownfield ("JS wants back?" and "forward commit")?</li>
+</ul>
+
+<h2>How to reproduce</h2>
+<pre>cd rn-predictive-back-brownfield
+# build the AAR and the APK as in Research 1, then:
+adb logcat -c
+adb shell input swipe 8 1600 700 1600 4000      # slow edge swipe
+adb logcat -d -s PredictiveBack:I ReactNativeJS:I NativeHost:I</pre>
+<p class="muted">E1: launcher → "Open React Native screen (back not set up)" → swipe. E2/E3: "Open React Native screen" → Consume or Release →
+push one JS screen → swipe. E4: Auto, push one JS screen, open screen 3, then follow the table.</p>
+
+</main>
+</body>
+</html>

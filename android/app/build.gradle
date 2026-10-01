@@ -20,6 +20,11 @@ react {
     // ["debug", "debugOptimized"]. Cleared on purpose: the AAR is consumed by a native
     // app with no Metro in the picture, so every variant needs a real bundle.
     debuggableVariants = []
+
+    // RNGP prefers a hermesc built from source when it finds one, and ../react-native has an
+    // old ReactAndroid/hermes-engine build lying around. Its bytecode (v98) does not load on the
+    // hermes-android runtime the AAR ships (v99), so point at the npm compiler instead.
+    hermesCommand = "$rootDir/../node_modules/hermes-compiler/hermesc/%OS-BIN%/hermesc"
 }
 
 android {

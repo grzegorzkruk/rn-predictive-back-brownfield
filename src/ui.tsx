@@ -33,7 +33,7 @@ export const COLORS = {
 export type LogLine = {time: string; text: string; tone?: 'good' | 'warn'};
 
 /** Append-only log, newest first, with millisecond timestamps. */
-export function useLog(max = 14) {
+export function useLog(tag: string, max = 14) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const seq = useRef(0);
 
@@ -41,9 +41,11 @@ export function useLog(max = 14) {
     (text: string, tone?: LogLine['tone']) => {
       seq.current += 1;
       const time = new Date().toISOString().slice(11, 23);
+      // Mirrored to logcat (ReactNativeJS) so lines survive the activity that printed them.
+      console.log(`[PBB ${tag}] ${text}`);
       setLines((prev) => [{time, text, tone}, ...prev].slice(0, max));
     },
-    [max],
+    [max, tag],
   );
 
   return {lines, log};
@@ -144,6 +146,35 @@ export function Button({
   );
 }
 
+/** A row of mutually exclusive options. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: ReadonlyArray<{value: T; label: string}>;
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <View style={styles.segmented}>
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="button"
+            accessibilityState={{selected}}
+            onPress={() => onChange(option.value)}
+            style={[styles.segment, selected ? styles.buttonPrimary : null]}>
+            <Text style={styles.buttonLabel}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Log({lines, empty}: {lines: LogLine[]; empty: string}) {
   return (
     <View style={styles.log}>
@@ -180,6 +211,8 @@ export function Fact({label, value}: {label: string; value: string}) {
 const styles = {
   screenContent: {
     padding: 16,
+    // Edge-to-edge: leave room for the status bar.
+    paddingTop: 40,
     paddingBottom: 56,
     gap: 12,
     backgroundColor: COLORS.background,
@@ -209,6 +242,16 @@ const styles = {
     backgroundColor: COLORS.surface,
   },
   buttonPrimary: {backgroundColor: COLORS.accent, borderColor: COLORS.accent},
+  segmented: {flexDirection: 'row', gap: 6},
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.surface,
+  },
   buttonPressed: {opacity: 0.7},
   buttonLabel: {color: COLORS.text, fontSize: 14, fontWeight: '600'},
   log: {gap: 4},

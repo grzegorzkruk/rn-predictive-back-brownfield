@@ -59,4 +59,7 @@ dependencies {
 
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.fragment:fragment:1.8.9")
+    // handleOnBackStarted / Progressed / Cancelled landed in activity 1.8. NativeHostActivity
+    // overrides them to see the swipe while its own callback owns it.
+    implementation("androidx.activity:activity:1.8.2")
 }

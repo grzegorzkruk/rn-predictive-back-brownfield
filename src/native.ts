@@ -1,22 +1,20 @@
 /**
  * Native <-> React Native bridge for this demo.
  *
- * The native app registers one legacy module, "BackProbe". It is deliberately small:
+ * The native app registers one legacy module, "BackProbe":
  *
  *   constants  - what the device and the classpath can do, read once
- *   events     - what the host decided about the gesture, pushed as it happens
- *   one method - ask the host to change who consumes back
+ *   one method - open screen 3 (NativeHostActivity)
  *
- * Everything else goes through stock APIs: BackHandler for hardwareBackPress, and
+ * NativeHostActivity pushes what it decided about the gesture as device events. Everything
+ * else goes through stock APIs: BackHandler for hardwareBackPress, and
  * @callstack/react-native-brownfield for popToNative.
- *
- * There are no synchronous methods. A legacy module answers those only through the
- * legacy interop layer, and this app runs the new architecture.
  */
 
 import { DeviceEventEmitter, NativeModules, Platform } from 'react-native';
 
-export type HostBackMode = 'system' | 'consume' | 'forward';
+/** Who owns back on screen 3. Mirrors NativeHostActivity.Mode. */
+export type HostBackMode = 'fragment' | 'system' | 'host';
 
 export type HostConstants = {
   /** Target SDK of the installed APK. 36+ means predictive back cannot be opted out of. */
@@ -32,27 +30,19 @@ export type HostBackProgress = {
   progress: number;
 };
 
-type BackProbeSpec = {
-  CONSTANTS?: HostConstants;
-  setHostBackMode(mode: HostBackMode): void;
+type BackProbeSpec = HostConstants & {
   openNativeHost(): void;
-};
-
-const FALLBACK: HostConstants = {
-  targetSdk: 0,
-  deviceSdk: 0,
-  activityHasProgressCallbacks: false,
 };
 
 const probe = NativeModules.BackProbe as BackProbeSpec | undefined;
 
 export const hasBackProbe = probe != null && Platform.OS === 'android';
 
-export const hostConstants: HostConstants = probe?.CONSTANTS ?? FALLBACK;
-
-export function setHostBackMode(mode: HostBackMode): void {
-  probe?.setHostBackMode(mode);
-}
+export const hostConstants: HostConstants = {
+  targetSdk: probe?.targetSdk ?? 0,
+  deviceSdk: probe?.deviceSdk ?? 0,
+  activityHasProgressCallbacks: probe?.activityHasProgressCallbacks === true,
+};
 
 export function openNativeHost(): void {
   probe?.openNativeHost();
@@ -66,14 +56,13 @@ function on<T>(event: string, listener: (payload: T) => void): () => void {
   return () => sub.remove();
 }
 
-/** Pushed whenever the host's back callback changes state. */
+/** Pushed when the host switches who owns back. */
 export const addHostModeListener = (listener: (mode: HostBackMode) => void) =>
   on<HostBackMode>('HostBackMode', listener);
 
 /**
- * Pushed while the host's callback owns the swipe. That is exactly the case where neither
- * the system animation nor FragmentManager can run, so the in-app animation has to be
- * driven by whoever received these events.
+ * Pushed while the host's own callback owns the swipe. Neither the system animation nor
+ * FragmentManager runs in that case, so whoever receives these drives the in-app animation.
  */
 export const addHostBackProgressListener = (listener: (event: HostBackProgress) => void) =>
   on<HostBackProgress>('HostBackProgress', listener);

@@ -47,6 +47,11 @@ const LINKS = {
   '@react-native/normalize-colors': path.join(RN_PACKAGES, 'normalize-color'),
   '@react-native/polyfills': path.join(RN_PACKAGES, 'polyfills'),
   '@react-native/virtualized-lists': path.join(RN_PACKAGES, 'virtualized-lists'),
+
+  // hermesc has to emit the bytecode version of the hermes-android runtime the AAR ships.
+  // The npm copy pulled by the CLI is an older line, and its bundle fails at startup with
+  // "Wrong bytecode version".
+  'hermes-compiler': path.join(RN_REPO, 'node_modules', 'hermes-compiler'),
 };
 
 function ensureSymlink(linkPath, targetPath) {
