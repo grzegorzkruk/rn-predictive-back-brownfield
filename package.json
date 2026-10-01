@@ -1,0 +1,54 @@
+{
+  "name": "rn-predictive-back-brownfield",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Brownfield demo for Android predictive back, on react-native-brownfield. Native screen -> React Native screen -> native screen with an embedded RN fragment. react-native and @callstack/react-native-brownfield are symlinked from local checkouts by scripts/link.js.",
+  "scripts": {
+    "postinstall": "node ./scripts/link.js",
+    "link": "node ./scripts/link.js",
+    "brownfield-plugin:publish": "bash ./scripts/publish-brownfield-plugin.sh",
+    "rn:publish": "bash ./scripts/publish-rn.sh",
+    "setup": "yarn install && yarn brownfield-plugin:publish && yarn rn:publish",
+    "start": "node ./node_modules/react-native/cli.js start",
+    "package:android": "(cd android && ./gradlew :brownfieldlib:assembleRelease)",
+    "publish:android": "(cd android && ./gradlew :brownfieldlib:publishMavenAarPublicationToMavenLocalRepository)",
+    "aar": "yarn package:android && yarn publish:android",
+    "native:assemble": "(cd native-app && ./gradlew :app:assembleDebug)",
+    "native:install": "(cd native-app && ./gradlew :app:installDebug)",
+    "gradle-stop": "(cd android && ./gradlew --stop) ; (cd native-app && ./gradlew --stop)"
+  },
+  "//": [
+    "react-native and @callstack/react-native-brownfield are replaced by symlinks to",
+    "../react-native/packages/react-native and ../react-native-brownfield by scripts/link.js,",
+    "so the versions below only have to satisfy the resolver. The native build reads the",
+    "react-native version out of the checkout: 1000.0.0, resolved from /tmp/maven-local",
+    "(scripts/publish-rn.sh).",
+    "",
+    "react-navigation and react-native-screens are deliberately absent. The RN screen in",
+    "this demo is a plain state stack over BackHandler, so the back behaviour under test is",
+    "React Native core's own and not FragmentManager's. A stack library would move the same",
+    "question into that library instead of answering it."
+  ],
+  "//commands": [
+    "The CLI's `bundle` command is registered by @react-native/community-cli-plugin through",
+    "its own react-native.config.js, and the CLI only reads that file for packages it finds",
+    "as direct dependencies of the project. Declared here for that reason, then symlinked",
+    "to the checkout by scripts/link.js like everything else from ../react-native."
+  ],
+  "dependencies": {
+    "@callstack/react-native-brownfield": "5.1.1",
+    "@react-native/community-cli-plugin": "0.87.1",
+    "react": "19.2.3",
+    "react-native": "0.87.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-config": "20.2.0",
+    "@react-native-community/cli-config-android": "20.2.0",
+    "@types/react": "^19.1.1",
+    "typescript": "^5.0.4"
+  }
+}

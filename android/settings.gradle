@@ -1,0 +1,39 @@
+/*
+ * React Native side of the brownfield predictive-back demo.
+ *
+ *   :app            the React Native app. Never installed on a device. It exists so
+ *                   the React Native Gradle Plugin can autolink and so the JS bundle
+ *                   gets built.
+ *   :brownfieldlib  the Android library the native app actually consumes. The
+ *                   com.callstack.react.brownfield plugin explodes every autolinked
+ *                   library :app depends on and merges it into one fat AAR, together
+ *                   with the JS bundle.
+ *
+ * react-native comes from the local checkout at ../react-native, published as an
+ * AAR into /tmp/maven-local by `yarn rn:publish` (scripts/publish-rn.sh):
+ *
+ *   ./gradlew :packages:react-native:ReactAndroid:publishReleasePublicationToMavenTempLocalRepository
+ *
+ * The fat AAR has to be built against an artifact, not a composite build, because the
+ * plugin physically unzips AARs to merge them. That publish step is what makes the
+ * checkout's ReactActivity.java reachable from this demo.
+ */
+
+pluginManagement {
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex -> ex.autolinkLibrariesFromCommand() }
+
+rootProject.name = 'RNPredictiveBackBrownfield'
+
+include ':app'
+include ':brownfieldlib'
+
+includeBuild("../node_modules/@react-native/gradle-plugin")

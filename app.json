@@ -1,0 +1,10 @@
+{
+  "name": "RNPredictiveBackBrownfield",
+  "displayName": "RN Predictive Back (Brownfield)",
+  "__comment": [
+    "The value of `name` is the appKey both native entry points mount:",
+    "RNActivity (the full-screen RN screen) and NativeHostActivity's embedded",
+    "ReactNativeFragment. The host passes it through ReactNativeFragmentArgNames.",
+    "Keep it in sync with ReactNativeConstants.MAIN_MODULE_NAME in the native app."
+  ]
+}

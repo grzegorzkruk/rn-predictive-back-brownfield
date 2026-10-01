@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  No components of our own. The merged manifest of the published AAR picks up whatever the
+  exploded libraries declare — the brownfield plugin merges those manifests in.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

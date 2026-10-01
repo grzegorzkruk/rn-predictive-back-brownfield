@@ -1,0 +1,69 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+/**
+ * The React Native app. It is never installed on a device — the APK is ../native-app.
+ * This module exists so that:
+ *
+ *   1. the React Native Gradle Plugin autolinks the JS dependencies into a package list,
+ *      which :brownfieldlib copies into the AAR;
+ *   2. `createBundle<variant>JsAndAssets` produces index.android.bundle, which
+ *      :brownfieldlib folds in as an asset;
+ *   3. the app-level CMake builds the codegen libraries with the same struct layout as
+ *      libreactnative.so (see src/main/jni/CMakeLists.txt).
+ */
+react {
+    autolinkLibrariesWithApp()
+
+    // RNGP skips bundling for any variant named in this list; the default is
+    // ["debug", "debugOptimized"]. Cleared on purpose: the AAR is consumed by a native
+    // app with no Metro in the picture, so every variant needs a real bundle.
+    debuggableVariants = []
+}
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.pbb.rn"
+
+    defaultConfig {
+        applicationId "com.pbb.rn"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        // Hermes and the codegen libs otherwise compile every ABI (~3x slower).
+        // Every device and emulator image used here is arm64.
+        ndk { abiFilters += ["arm64-v8a"] }
+    }
+
+    externalNativeBuild {
+        cmake { path "src/main/jni/CMakeLists.txt" }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    // The version comes from the React Native Gradle Plugin, which reads it out of
+    // node_modules/react-native/package.json -> 1000.0.0 -> the ../react-native checkout,
+    // resolved from /tmp/maven-local (scripts/publish-rn.sh).
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}

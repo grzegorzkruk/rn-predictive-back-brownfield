@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Only needed with Metro (yarn native:install -PuseMetro=true). The packaged bundle
+         inside the fat AAR needs no network at all. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      android:enableOnBackInvokedCallback is left out on purpose. targetSdk is 36, where the
+      platform ignores a false value and the gesture is always on, and the default is already
+      true on 33+. Declaring it here would suggest the demo depends on it, which it does not —
+      see LauncherActivity for what the manifest can and cannot change.
+    -->
+    <application
+        android:name=".NativeApp"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PBBNative">
+
+        <!-- Screen 1: the native launcher, and the bottom of the path under test. -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Screen 2: a ReactActivity. Not exported — it is only ever started from
+          LauncherActivity, which keeps the launcher intent unambiguous.
+          configChanges mirrors what a React Native app declares, so a rotation or a keyboard
+          change does not recreate the React surface.
+        -->
+        <activity
+            android:name=".RNActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Screen 3: native chrome with a ReactNativeFragment inside. -->
+        <activity
+            android:name=".NativeHostActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+    </application>
+</manifest>
