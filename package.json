@@ -2,13 +2,12 @@
   "name": "rn-predictive-back-brownfield",
   "version": "0.0.1",
   "private": true,
-  "description": "Brownfield demo for Android predictive back, on react-native-brownfield. Native screen -> React Native screen -> native screen with an embedded RN fragment. react-native and @callstack/react-native-brownfield are symlinked from local checkouts by scripts/link.js.",
+  "description": "Brownfield demo for Android predictive back, on react-native-brownfield. Native screen -> React Native screen -> native screen with an embedded RN fragment. react-native is symlinked from a local checkout by scripts/link.js; @callstack/react-native-brownfield comes from npm.",
   "scripts": {
     "postinstall": "node ./scripts/link.js",
     "link": "node ./scripts/link.js",
-    "brownfield-plugin:publish": "bash ./scripts/publish-brownfield-plugin.sh",
     "rn:publish": "bash ./scripts/publish-rn.sh",
-    "setup": "yarn install && yarn brownfield-plugin:publish && yarn rn:publish",
+    "setup": "yarn install && yarn rn:publish",
     "start": "node ./node_modules/react-native/cli.js start",
     "package:android": "(cd android && ./gradlew :brownfieldlib:assembleRelease)",
     "publish:android": "(cd android && ./gradlew :brownfieldlib:publishMavenAarPublicationToMavenLocalRepository)",
@@ -18,11 +17,10 @@
     "gradle-stop": "(cd android && ./gradlew --stop) ; (cd native-app && ./gradlew --stop)"
   },
   "//": [
-    "react-native and @callstack/react-native-brownfield are replaced by symlinks to",
-    "../react-native/packages/react-native and ../react-native-brownfield by scripts/link.js,",
-    "so the versions below only have to satisfy the resolver. The native build reads the",
+    "react-native is replaced by a symlink to ../react-native/packages/react-native,",
+    "so the version below only has to satisfy the resolver. The native build reads the",
     "react-native version out of the checkout: 1000.0.0, resolved from /tmp/maven-local",
-    "(scripts/publish-rn.sh).",
+    "(scripts/publish-rn.sh). @callstack/react-native-brownfield comes from npm.",
     "",
     "react-navigation and react-native-screens are deliberately absent. The RN screen in",
     "this demo is a plain state stack over BackHandler, so the back behaviour under test is",
@@ -36,18 +34,18 @@
     "to the checkout by scripts/link.js like everything else from ../react-native."
   ],
   "dependencies": {
-    "@callstack/react-native-brownfield": "5.1.1",
+    "@callstack/react-native-brownfield": "6.2.0",
     "@react-native/community-cli-plugin": "0.87.1",
-    "react": "19.2.3",
+    "react": "19.3.0",
     "react-native": "0.87.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "20.2.0",
-    "@react-native-community/cli-config": "20.2.0",
-    "@react-native-community/cli-config-android": "20.2.0",
+    "@react-native-community/cli": "21.0.0",
+    "@react-native-community/cli-config": "21.0.0",
+    "@react-native-community/cli-config-android": "21.0.0",
     "@types/react": "^19.1.1",
     "typescript": "^5.0.4"
   }

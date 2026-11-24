@@ -2,7 +2,6 @@
  * Links the local checkouts into this app's node_modules:
  *
  *   react-native                      -> ../react-native/packages/react-native
- *   @callstack/react-native-brownfield -> ../react-native-brownfield/packages/react-native-brownfield
  *
  * plus the tooling packages that only exist inside the react-native monorepo at
  * this version (0.87 on npm does not match the 1000.0.0 checkout).
@@ -25,16 +24,10 @@ const NM = path.join(APP_ROOT, 'node_modules');
 
 const RN_REPO = path.join(CALLSTACK, 'react-native');
 const RN_PACKAGES = path.join(RN_REPO, 'packages');
-const BROWNFIELD_REPO = path.join(CALLSTACK, 'react-native-brownfield');
 
 /** package name -> absolute source directory */
 const LINKS = {
   'react-native': path.join(RN_PACKAGES, 'react-native'),
-  '@callstack/react-native-brownfield': path.join(
-    BROWNFIELD_REPO,
-    'packages',
-    'react-native-brownfield',
-  ),
 
   // Not published at the checkout's version, so they have to come from the repo.
   '@react-native/codegen': path.join(RN_PACKAGES, 'react-native-codegen'),

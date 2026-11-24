@@ -19,9 +19,8 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
-        // From ../react-native-brownfield/gradle-plugins/react/brownfield, published by
-        // `yarn brownfield-plugin:publish` (scripts/publish-brownfield-plugin.sh).
-        classpath("com.callstack.react:brownfield-gradle-plugin:2.0.0-alpha10-SNAPSHOT")
+        // Released plugin from Maven Central.
+        classpath("com.callstack.react:brownfield-gradle-plugin:2.0.0-alpha14")
     }
 }
 

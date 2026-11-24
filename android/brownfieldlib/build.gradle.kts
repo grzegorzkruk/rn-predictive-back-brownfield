@@ -19,7 +19,9 @@ react {
     autolinkLibrariesWithApp()
 }
 
-android {
+// AGP 9 (from the react-native checkout) rejects the deprecated `android {}` accessor and
+// `kotlinOptions`, so this uses the LibraryExtension DSL and Kotlin compilerOptions.
+extensions.configure<com.android.build.api.dsl.LibraryExtension> {
     namespace = "com.pbb.brownfieldlib"
     compileSdk = 37
 
@@ -47,14 +49,16 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     publishing {
         multipleVariants {
             allVariants()
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

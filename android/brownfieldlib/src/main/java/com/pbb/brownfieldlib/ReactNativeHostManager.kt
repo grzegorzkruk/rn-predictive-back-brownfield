@@ -34,12 +34,8 @@ object ReactNativeHostManager {
         onJSBundleLoaded: OnJSBundleLoaded? = null,
         extraPackages: List<ReactPackage> = emptyList(),
     ) {
-        if (initialized) {
-            onJSBundleLoaded?.invoke(true)
-            return
-        }
-        initialized = true
-
+        // react-native-brownfield 6.x runs initialization once and, on a repeated call, only
+        // passes the callback the timings of the bundle that already loaded.
         val options =
             hashMapOf<String, Any>(
                 "packages" to PackageList(application).packages + extraPackages,
@@ -49,6 +45,4 @@ object ReactNativeHostManager {
             )
         ReactNativeBrownfield.initialize(application, options, onJSBundleLoaded)
     }
-
-    @Volatile private var initialized = false
 }

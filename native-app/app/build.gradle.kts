@@ -3,7 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-android {
+// AGP 9 rejects the deprecated `android {}` accessor and `kotlinOptions`, so this uses the
+// ApplicationExtension DSL and Kotlin compilerOptions.
+extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.pbb.nativeapp"
     compileSdk = 37
 
@@ -46,9 +48,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    kotlinOptions {
-        jvmTarget = "17"
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
