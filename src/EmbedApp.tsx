@@ -1,7 +1,7 @@
 /**
  * Screen 3 of the path: content inside a ReactNativeFragment, hosted by a native activity.
  *
- * The fragment is not a ReactActivity, so BackHandler.setInterceptEnabled is a no-op here.
+ * The host is not a ReactActivity, so the BackHandler `intercept` option has no effect here.
  * NativeHostActivity decides who owns back, and this tree only reports it:
  *
  *   fragment - stock react-native-brownfield. Its always-enabled callback claims the swipe,
@@ -36,16 +36,20 @@ const MODE_COPY: Record<HostBackMode, string> = {
 
 export default function EmbedApp() {
   const [keepOnCommit, setKeepOnCommit] = useState(false);
+  const [intercept, setIntercept] = useState(false);
   const [mode, setMode] = useState<HostBackMode>('fragment');
   const [progressLabel, setProgressLabel] = useState('idle');
   const { lines, log } = useLog('screen3');
-  const [progressView, rnProgressLabel, rnProgressEvents] = useRnProgress();
+  // Observer only: the host decides who owns back here, so this view never takes the gesture.
+  const [progressView, rnProgressLabel, rnProgressEvents] = useRnProgress(false);
 
   // Read through a ref so the listener is registered once but still sees the current value.
   const keepRef = useRef(keepOnCommit);
   keepRef.current = keepOnCommit;
 
   const progress = useRef(new Animated.Value(0)).current;
+
+  const subscriptionRef = useRef<ReturnType<typeof BackHandler.addEventListener> | null>(null);
 
   useEffect(
     () =>
@@ -85,7 +89,11 @@ export default function EmbedApp() {
       );
       return keep;
     });
-    return () => subscription.remove();
+    subscriptionRef.current = subscription;
+    return () => {
+      subscriptionRef.current = null;
+      subscription.remove();
+    };
   }, [log]);
 
   return (
@@ -124,14 +132,19 @@ export default function EmbedApp() {
         </Copy>
         {progressView}
         <Fact
-          label="PredictiveBackAnimatedView"
+          label="PredictiveBackProgressView"
           value={`${rnProgressLabel} (${rnProgressEvents} events)`}
         />
+        <Fact label="this listener's intercept" value={String(intercept)} />
         <Button
-          label="Call setInterceptEnabled(true)"
+          label={
+            intercept ? 'Stop asking for back (intercept: false)' : 'Ask for back (intercept: true)'
+          }
           onPress={() => {
-            BackHandler.setInterceptEnabled(true);
-            log('called setInterceptEnabled(true)');
+            const next = !intercept;
+            subscriptionRef.current?.setInterceptEnabled(next);
+            setIntercept(next);
+            log(`intercept: ${next} on this listener (no effect: host is not a ReactActivity)`);
           }}
         />
       </Card>

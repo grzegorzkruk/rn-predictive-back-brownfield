@@ -1,6 +1,9 @@
 package com.pbb.nativeapp
 
 import android.app.Application
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlags
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android
+import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsProvider
 import com.pbb.brownfieldlib.ReactNativeHostManager
 import com.pbb.nativeapp.probe.BackProbePackage
 
@@ -24,5 +27,13 @@ class NativeApp : Application() {
         useDevSupport = BuildConfig.USE_METRO,
         extraPackages = listOf(BackProbePackage()),
     )
+    // The demo needs the new predictive back behavior, which is behind a feature flag.
+    // It goes after initialize and uses dangerouslyForceOverride, because a plain override
+    // throws if React Native has already set its default flags.
+    ReactNativeFeatureFlags.dangerouslyForceOverride(
+        object :
+            ReactNativeFeatureFlagsProvider by ReactNativeFeatureFlagsOverrides_RNOSS_Stable_Android() {
+          override fun enablePredictiveBackAndroid(): Boolean = true
+        })
   }
 }

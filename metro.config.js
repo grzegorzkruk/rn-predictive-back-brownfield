@@ -14,7 +14,8 @@ const path = require('node:path');
 const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
 
 const CALLSTACK = path.resolve(__dirname, '..');
-const RN_REPO = path.join(CALLSTACK, 'react-native');
+// RN_REPO points at another react-native checkout, for example a PR worktree.
+const RN_REPO = process.env.RN_REPO ? path.resolve(process.env.RN_REPO) : path.join(CALLSTACK, 'react-native');
 
 const defaultConfig = getDefaultConfig(__dirname);
 
@@ -29,6 +30,7 @@ const config = {
     path.join(RN_REPO, 'packages', 'normalize-color'),
     path.join(RN_REPO, 'packages', 'polyfills'),
     path.join(RN_REPO, 'packages', 'virtualized-lists'),
+    path.join(CALLSTACK, 'rn-predictive-back-progress'),
   ],
 
   resolver: {

@@ -1,7 +1,7 @@
 /**
  * Screen 2 of the path: the React Native screen, mounted by RNActivity (a ReactActivity).
  *
- * ReactActivity is the one surface where BackHandler.setInterceptEnabled applies:
+ * ReactActivity is the one surface where the BackHandler `intercept` option applies:
  *
  *   true  - React Native consumes the swipe. The system animation does not play; JS gets
  *           hardwareBackPress on commit and can pop its own stack.
@@ -11,11 +11,14 @@
  * "Auto" is the pattern a brownfield screen wants: consume only while there is a JS screen to
  * pop, release at the root so leaving React Native gets the system animation.
  *
+ * The screen holds one hardwareBackPress listener and changes its request with
+ * subscription.setInterceptEnabled, so the listener is never removed and re-added.
+ *
  * The stack is plain state plus BackHandler, deliberately not a navigation library, so the
  * behaviour under test is React Native core's own.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler } from 'react-native';
 import ReactNativeBrownfield from '@callstack/react-native-brownfield';
 
@@ -35,7 +38,10 @@ import { useRnProgress } from './rnProgress';
 
 const DEPTH_LIMIT = 3;
 
-/** 'unset' means JS never calls setInterceptEnabled, so ReactActivity keeps its own default. */
+/**
+ * 'unset' adds the listener without the `intercept` option, like an app that has not adopted it.
+ * That is the same as `intercept: false`, so it behaves like 'release'.
+ */
 type Ownership = 'unset' | 'auto' | 'consume' | 'release';
 
 const OWNERSHIP_OPTIONS: ReadonlyArray<{ value: Ownership; label: string }> = [
@@ -46,7 +52,7 @@ const OWNERSHIP_OPTIONS: ReadonlyArray<{ value: Ownership; label: string }> = [
 
 const OWNERSHIP_COPY: Record<Ownership, string> = {
   unset:
-    'JS has not called setInterceptEnabled. ReactActivity is in whatever state it starts in. Picking any option ends this.',
+    'The listener has no intercept option, like an app that has not adopted it. That means intercept: false, so this is Release: the system animates the activity away, even with JS screens pushed. Picking any option ends this.',
   auto: 'RN consumes back only while a JS screen is pushed. At the root it lets go, so leaving gets the system animation.',
   consume:
     'RN always consumes back. JS pops its stack; at the root it returns false and the activity finishes without the system animation.',
@@ -62,34 +68,47 @@ export default function RnScreenApp({
   const [depth, setDepth] = useState(1);
   const [ownership, setOwnership] = useState<Ownership>(initialOwnership);
   const { lines, log } = useLog('screen2');
-  const [progressView, progressLabel, progressEvents] = useRnProgress();
 
   const consumes = ownership === 'consume' || (ownership === 'auto' && depth > 1);
+  // The progress view takes the gesture only while RN consumes, so Auto and Release still
+  // leave back to Android at the root.
+  const [progressView, progressLabel, progressEvents] = useRnProgress(consumes);
 
-  useEffect(() => {
-    if (ownership === 'unset') {
-      log('ownership unset: setInterceptEnabled never called');
-      return;
-    }
-    BackHandler.setInterceptEnabled(consumes);
-    log(
-      consumes ? 'setInterceptEnabled(true): RN consumes' : 'setInterceptEnabled(false): system owns',
-      consumes ? 'warn' : 'good',
-    );
-  }, [consumes, ownership, log]);
+  // Read through a ref so the listener is added once but still sees the current depth.
+  const depthRef = useRef(depth);
+  depthRef.current = depth;
+  const subscriptionRef = useRef<ReturnType<typeof BackHandler.addEventListener> | null>(null);
 
+  // Added without the intercept option. The effect below sets it, except in 'unset'.
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (depth > 1) {
-        setDepth((current) => current - 1);
-        log(`hardwareBackPress -> popped to depth ${depth - 1}`, 'good');
+      const current = depthRef.current;
+      if (current > 1) {
+        setDepth((value) => value - 1);
+        log(`hardwareBackPress -> popped to depth ${current - 1}`, 'good');
         return true;
       }
       log('hardwareBackPress at root -> not handled');
       return false;
     });
-    return () => subscription.remove();
-  }, [depth, log]);
+    subscriptionRef.current = subscription;
+    return () => {
+      subscriptionRef.current = null;
+      subscription.remove();
+    };
+  }, [log]);
+
+  useEffect(() => {
+    if (ownership === 'unset') {
+      log('ownership unset: listener has no intercept option (same as false)');
+      return;
+    }
+    subscriptionRef.current?.setInterceptEnabled(consumes);
+    log(
+      consumes ? 'intercept: true -> RN consumes' : 'intercept: false -> system owns',
+      consumes ? 'warn' : 'good',
+    );
+  }, [consumes, ownership, log]);
 
   const push = useCallback(() => {
     setDepth((current) => Math.min(current + 1, DEPTH_LIMIT));
@@ -116,11 +135,11 @@ export default function RnScreenApp({
         <Copy>{OWNERSHIP_COPY[ownership]}</Copy>
         <Fact
           label="RN consumes now (JS view)"
-          value={ownership === 'unset' ? 'unknown' : consumes ? 'yes' : 'no'}
+          value={ownership === 'unset' ? 'no (no intercept option)' : consumes ? 'yes' : 'no'}
         />
         {progressView}
         <Fact
-          label="PredictiveBackAnimatedView"
+          label="PredictiveBackProgressView"
           value={`${progressLabel} (${progressEvents} events)`}
         />
       </Card>

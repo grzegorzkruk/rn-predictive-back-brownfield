@@ -1,19 +1,19 @@
 /**
- * Probe for the branch's PredictiveBackAnimatedView.
+ * Probe for PredictiveBackProgressView from rn-predictive-back-progress.
  *
- * The view registers itself as a progress listener on `reactContext.currentActivity` when it
- * attaches, and only if that activity is a ReactActivity. In a brownfield app that is the
- * question: does a given surface get progress at all, and from which activity?
+ * The view looks up its activity when it attaches, so in a brownfield app it reports progress
+ * from whichever activity hosts this surface. While `active` is true it also takes the gesture,
+ * so pass true only while this surface should own back.
  *
  * The handler runs on the JS thread on purpose, so the label can be read from a snapshot.
  */
 
 import React, { useCallback, useState } from 'react';
-import { PredictiveBackAnimatedView } from 'react-native';
+import { PredictiveBackProgressView } from 'rn-predictive-back-progress';
 
 const PHASES = ['start', 'progress', 'cancel', 'commit'];
 
-export function useRnProgress(): [React.ReactElement, string, number] {
+export function useRnProgress(active: boolean): [React.ReactElement, string, number] {
   const [label, setLabel] = useState('no event yet');
   const [events, setEvents] = useState(0);
 
@@ -26,5 +26,9 @@ export function useRnProgress(): [React.ReactElement, string, number] {
     [],
   );
 
-  return [<PredictiveBackAnimatedView key="pb" onProgress={onProgress} />, label, events];
+  return [
+    <PredictiveBackProgressView key="pb" active={active} onProgress={onProgress} />,
+    label,
+    events,
+  ];
 }

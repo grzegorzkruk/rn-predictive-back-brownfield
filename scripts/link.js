@@ -22,7 +22,8 @@ const APP_ROOT = path.resolve(__dirname, '..');
 const CALLSTACK = path.resolve(APP_ROOT, '..');
 const NM = path.join(APP_ROOT, 'node_modules');
 
-const RN_REPO = path.join(CALLSTACK, 'react-native');
+// RN_REPO points at another react-native checkout, for example a PR worktree.
+const RN_REPO = process.env.RN_REPO ? path.resolve(process.env.RN_REPO) : path.join(CALLSTACK, 'react-native');
 const RN_PACKAGES = path.join(RN_REPO, 'packages');
 
 /** package name -> absolute source directory */

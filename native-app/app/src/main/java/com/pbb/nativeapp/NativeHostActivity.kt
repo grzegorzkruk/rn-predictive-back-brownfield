@@ -23,7 +23,7 @@ import com.pbb.nativeapp.NativeUi.roundedBackground
 /**
  * Screen 3: native chrome with a brownfield [ReactNativeFragment] filling the rest.
  *
- * The fragment is not a ReactActivity, so `BackHandler.setInterceptEnabled` does nothing here.
+ * This activity is not a ReactActivity, so the BackHandler `intercept` option does nothing here.
  * Who gets the back gesture is decided by the callbacks on this activity's dispatcher, and the
  * host picks one of three modes:
  *

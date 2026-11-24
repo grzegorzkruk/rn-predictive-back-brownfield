@@ -27,6 +27,22 @@
     "React Native core's own and not FragmentManager's. A stack library would move the same",
     "question into that library instead of answering it."
   ],
+  "//setup": [
+    "The react-native checkout is chosen by RN_REPO and defaults to ../react-native.",
+    "For the predictive-back PR (react-native#59292) checkout, export RN_REPO first:",
+    "",
+    "  export RN_REPO=~/react-native-pr59292   # branch predictive-back-swipe-merge",
+    "  yarn install                            # runs scripts/link.js",
+    "  yarn rn:publish                         # publishes that checkout as",
+    "                                          # react-android:1000.0.0 into /tmp/maven-local",
+    "  yarn aar && yarn native:install         # fat AAR, then the app",
+    "",
+    "Both shells need RN_REPO: yarn install uses it for the symlink and yarn start",
+    "uses it in metro.config.js. The native side cannot use the symlink at all",
+    "(see scripts/publish-rn.sh), so after any Java or C++ change in the checkout,",
+    "rerun yarn rn:publish before building. Without RN_REPO the fallback checkout",
+    "is used, which is a different branch."
+  ],
   "//commands": [
     "The CLI's `bundle` command is registered by @react-native/community-cli-plugin through",
     "its own react-native.config.js, and the CLI only reads that file for packages it finds",
@@ -37,7 +53,8 @@
     "@callstack/react-native-brownfield": "6.2.0",
     "@react-native/community-cli-plugin": "0.87.1",
     "react": "19.3.0",
-    "react-native": "0.87.1"
+    "react-native": "0.87.1",
+    "rn-predictive-back-progress": "link:../rn-predictive-back-progress"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
